@@ -220,58 +220,30 @@ class Clause(FormulaNode):
         return { var: polarity for var, polarity in self.get_literals_map().items() if var not in model }
 
     def is_consistent(self, model: dict[BooleanVariable, bool]) -> bool:
-        for lit, polarity in self.get_literals_map().items():
+        for var, polarity in self.get_literals_map().items():
             # Unassigned lit, ok:
-            if (lit, polarity) not in model and (lit, not polarity) not in model:
+            if var not in model:
                 return True
             # True lit, ok:
-            if (lit, polarity) in model:
+            if model[var] == polarity:
                 return True
         # Inconsistent:
         return False
 
-    # def is_unit(self, model: dict[BooleanVariable, bool]) -> bool:
-    #     # return sum(1 for lit, polarity in self.get_lits_polarity().items() if lit in model and polarity != model[lit]) == 1
-    #     n_unassigned = 0
-    #     for lit, polarity in self.get_lits_polarity().items():
-    #         if lit not in model:
-    #         # if lit not in model or model[lit] == polarity:
-    #         # if lit not in model or model[lit] != polarity:
-    #             n_unassigned += 1
-    #             if n_unassigned > 1:
-    #                 return False
-    #         elif model[lit] == polarity:
-    #             return False
-    #     return n_unassigned == 1    # NOTE: should *always* be True at this point
-
-    def is_unit(self, model: set[BooleanVariable, bool]) -> bool:
-        # return sum(1 for lit, polarity in self.get_lits_polarity().items() if lit in model and polarity != model[lit]) == 1
+    def is_unit(self, model: dict[BooleanVariable, bool]) -> bool:
         n_unassigned = 0
-        for lit, polarity in self.get_lits_polarity().items():
+        for var, polarity in self.get_literals_map().items():
+            # Unassigned literal, increase counter:
+            if var not in model:
+                n_unassigned += 1
+                # NOTE: could return early if n_unassigned > 1
             # False literal, ok:
-            if (lit, not polarity) in model:
+            if model[var] != polarity:
                 pass
             # True literal, not unit:
-            elif (lit, polarity) in model:
-                # return False
-                pass
-                n_unassigned += 1
-            # Unassigned literal, increase counter:
             else:
-                n_unassigned += 1
-                # if n_unassigned > 1:
-                #     return False
-        # return n_unassigned == 1    # NOTE: should *always* be True at this point
+                return False
         return n_unassigned == 1
-
-    # def get_unit(self, model: dict[BooleanVariable, bool]) -> tuple[BooleanVariable, bool]:
-    #     if not self.is_unit(model):
-    #         # TODO: custom exception
-    #         # TODO: more info in exception message
-    #         raise Exception("Clause is not unit")
-    #     unit = [ (lit, polarity) for lit, polarity in self.get_lits_polarity().items() if lit not in model ]
-    #     assert len(unit) == 1
-    #     return unit[0]
 
     def get_unit(self, model: Iterable[ClauseLiteral]) -> tuple[BooleanVariable, bool]:
         if not self.is_unit(model):
@@ -280,11 +252,11 @@ class Clause(FormulaNode):
             raise Exception("Clause is not unit")
         # At this point, it is guaranteed that there is exactly one unassigned literal.
         # Find it and return it imeediately.
-        for lit, polarity in self.get_lits_polarity().items():
-            # Not assigned in model (positively or negatively):
-            # if not ((lit, not polarity) in model or (lit, polarity) in model):
-            if not ((lit, not polarity) in model):
-                return lit, polarity
+        for var, polarity in self.get_literals_map().items():
+            # Unassigned literal:
+            if var not in model:
+                # NOTE: return ClauseLiteral or tuple[BooleanVariable, bool] ?
+                return var, polarity
 
     def __str__(self):
         return f"{ self.name or "" }{ ": " if self.name else "" }( { ' OR '.join(str(child) for child in self.children) } )"
