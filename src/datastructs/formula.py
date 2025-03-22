@@ -9,17 +9,17 @@ class FormulaNode:
         A generic node in the formula tree/DAG
     """
     
-    def __str__(self):
-        raise NotImplementedError()
-    
-    def __repr__(self):
-        return str(self)
-    
     def __eq__(self, other):
         # NOTE: purely syntactic equality, not semantic:
         #   - does not consider commutative properties (operators can override it to do so)
         #   - ...
         return type(self) == type(other) and self.children == other.children
+
+    def __str__(self):
+        raise NotImplementedError()
+    
+    def __repr__(self):
+        return str(self)
 
 class NAryNode(FormulaNode):
     """
@@ -28,17 +28,17 @@ class NAryNode(FormulaNode):
     def __init__(self, children: Iterable['FormulaNode']):
         self.children = children
     
-    def __str__(self):
-        raise NotImplementedError()
-    
-    def __repr__(self):
-        return str(self)
-    
     def __eq__(self, other):
         # NOTE: purely syntactic equality, not semantic:
         #   - does not consider commutative properties (operators can override it to do so)
         #   - ...
         return type(self) == type(other) and self.children == other.children
+
+    def __str__(self):
+        raise NotImplementedError()
+    
+    def __repr__(self):
+        return str(self)
 
 class BooleanOperator(NAryNode):
     """
@@ -53,6 +53,9 @@ class And(BooleanOperator):
     """
     def __str__(self):
         return f"( { ' AND '.join(str(child) for child in self.children) } )"
+
+    def __repr__(self):
+        return self.__str__()
     
 class Or(BooleanOperator):
     """
@@ -60,6 +63,9 @@ class Or(BooleanOperator):
     """
     def __str__(self):
         return f"( { ' OR '.join(str(child) for child in self.children) } )"
+    
+    def __repr__(self):
+        return self.__str__()
 
 class Not(BooleanOperator):
     """
@@ -67,6 +73,9 @@ class Not(BooleanOperator):
     """
     def __str__(self):
         return "! " + str(self.children[0])
+    
+    def __repr__(self):
+        return self.__str__()
 
 class Literal(FormulaNode):
     """
@@ -88,6 +97,9 @@ class BooleanConstant(Atom):
     
     def __str__(self):
         return str(self.value)
+    
+    def __repr__(self):
+        return self.__str__()
 
 class BooleanVariable(Atom):
     """
@@ -100,11 +112,17 @@ class BooleanVariable(Atom):
     def invert(self) -> Literal:
         return NotLiteral(self)
 
+    def __eq__(self, other):
+        return isinstance(other, BooleanVariable) and self.name == other.name
+
     def __hash__(self):
         return self.name.__hash__()
 
     def __str__(self):
         return self.name
+    
+    def __repr__(self):
+        return self.__str__()
 
 class NotLiteral(Literal):
     """
@@ -126,6 +144,9 @@ class NotLiteral(Literal):
     def __str__(self):
         return "!" + str(self.children[0])
 
+    def __repr__(self):
+        return self.__str__()
+
 class ClauseLiteral(Literal):
 
     def __init__(self, variable: BooleanVariable, polarity: bool):
@@ -133,17 +154,27 @@ class ClauseLiteral(Literal):
         self.variable = variable
         self.polarity = polarity
 
-class Clause(FormulaNode):
+    def __eq__(self, other):
+        return isinstance(other, ClauseLiteral) and self.variable == other.variable and self.polarity == other.polarity
+
+    def __hash__(self):
+        return hash((self.variable, self.polarity))
+
+    def __str__(self):
+        return f"{ '' if self.polarity else '!' }{ self.variable }"
+
+    def __repr__(self):
+        return self.__str__()
+
+class Clause(NAryNode):
     """
         A clause (disjunction of literals)
     """
     def __init__(self, children: Iterable['ClauseLiteral'], name: str | None = None):
         super().__init__(children)
-        self.lits_map = { lit.variable: lit.polarity for lit in children }
+        self.lits_polarity_map = { lit.variable: lit.polarity for lit in children }
+        self.lits_map = { lit.variable: lit for lit in children }
         self.name = name
-
-    def get_lits(self) -> Iterable[Literal]:
-        return self.children
 
     def __contains__(self, variable: BooleanVariable):
         # return variable in self.children or NotLiteral(variable) in self.children
@@ -213,53 +244,60 @@ class Clause(FormulaNode):
     def get_literals(self) -> list[ClauseLiteral]:
         return self.children
 
-    def get_literals_map(self) -> dict[BooleanVariable, bool]:
-        return self.lits_map
+    def get_literal(self, variable: BooleanVariable) -> ClauseLiteral:
+        return self.lits_map[variable]
+
+    def get_literals_polarity_map(self) -> dict[BooleanVariable, bool]:
+        return self.lits_polarity_map
 
     def get_unassigned_lits_map(self, model: dict[BooleanVariable, bool]) -> dict[BooleanVariable, bool]:
-        return { var: polarity for var, polarity in self.get_literals_map().items() if var not in model }
+        return { var: polarity for var, polarity in self.get_literals_polarity_map().items() if var not in model }
 
+    # def is_consistent(self, model: Iterable[ClauseLiteral]) -> bool:
     def is_consistent(self, model: dict[BooleanVariable, bool]) -> bool:
-        for var, polarity in self.get_literals_map().items():
+        for var, polarity in self.get_literals_polarity_map().items():
             # Unassigned lit, ok:
             if var not in model:
                 return True
             # True lit, ok:
-            if model[var] == polarity:
+            elif model[var] == polarity:
                 return True
         # Inconsistent:
         return False
 
+    # def is_unit(self, model: Iterable[ClauseLiteral]) -> bool:
     def is_unit(self, model: dict[BooleanVariable, bool]) -> bool:
         n_unassigned = 0
-        for var, polarity in self.get_literals_map().items():
+        for var, polarity in self.get_literals_polarity_map().items():
             # Unassigned literal, increase counter:
             if var not in model:
                 n_unassigned += 1
                 # NOTE: could return early if n_unassigned > 1
             # False literal, ok:
-            if model[var] != polarity:
+            elif model[var] != polarity:
                 pass
             # True literal, not unit:
             else:
                 return False
         return n_unassigned == 1
 
-    def get_unit(self, model: Iterable[ClauseLiteral]) -> tuple[BooleanVariable, bool]:
+    # def get_unit(self, model: Iterable[ClauseLiteral]) -> tuple[BooleanVariable, bool]:
+    # def get_unit(self, model: Iterable[ClauseLiteral]) -> ClauseLiteral:
+    def get_unit(self, model: dict[BooleanVariable, bool]) -> ClauseLiteral:
         if not self.is_unit(model):
             # TODO: custom exception
             # TODO: more info in exception message
             raise Exception("Clause is not unit")
         # At this point, it is guaranteed that there is exactly one unassigned literal.
         # Find it and return it imeediately.
-        for var, polarity in self.get_literals_map().items():
+        for var, polarity in self.get_literals_polarity_map().items():
             # Unassigned literal:
             if var not in model:
                 # NOTE: return ClauseLiteral or tuple[BooleanVariable, bool] ?
-                return var, polarity
+                return self.get_literal(var)
 
     def __str__(self):
-        return f"{ self.name or "" }{ ": " if self.name else "" }( { ' OR '.join(str(child) for child in self.children) } )"
+        return f"{ self.name or '' }{ ': ' if self.name else '' }( { ' OR '.join(str(child) for child in self.children) } )"
 
     def __repr__(self):
         return self.__str__()
