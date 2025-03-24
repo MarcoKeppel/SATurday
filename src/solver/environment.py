@@ -117,7 +117,9 @@ class ImplicationGraph:
         return self.decision_level
 
     def get_last_decision_level(self):
-        return self.get_last_decision().get_decision_level()
+        # FIXME
+        # return self.get_last_decision().get_decision_level()
+        return self.get_last_step().get_decision_level()
 
     # TODO: provide a way to add decisions at level 0 (before starting the solver),
     #       as it will be needed for incremental solving
@@ -324,6 +326,10 @@ class SolverEnvironment:
 
         learned_clause = conflict_clause
 
+        # HACK: if the solver is still at decision level 0, then UNSAT
+        if self.implication_graph.get_last_decision_level() == 0:
+            raise Exception("UNSAT")
+
         # Use 'decision' criterion
         # while not self.implication_graph.get_last_step().is_decision():
         while not self.implication_graph.get_last_step().is_decision():
@@ -352,9 +358,14 @@ class SolverEnvironment:
         # Backjump to the the highest point where the learned clause is unit
         learned_is_unit = False
         while True:
-            # If stack is empty, then UNSAT
+            # If stack is empty
             if self.implication_graph.is_empty():
-                raise Exception("UNSAT")
+                # If the clause is not unit yet, then UNSAT
+                if not learned_is_unit:
+                    raise Exception("UNSAT")
+                # Otherwise, just stop backjumping
+                _logger.debug("Clause is unit and stack is empty, stop backjumping")
+                break
             # Get the last assignment
             last = self.implication_graph.get_last_step()
             _logger.debug(f"  - step: { last }")
