@@ -247,6 +247,9 @@ class Clause(NAryNode):
     def get_literal(self, variable: BooleanVariable) -> ClauseLiteral:
         return self.lits_map[variable]
 
+    def get_variables(self) -> Iterable[BooleanVariable]:
+        return self.lits_map.keys()
+
     def get_literals_polarity_map(self) -> dict[BooleanVariable, bool]:
         return self.lits_polarity_map
 

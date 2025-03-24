@@ -12,6 +12,8 @@ from src.datastructs.formula import *
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG) 
 
+# FIXME: no need to store the antecedent clause for every parent of a unit propagation step,
+#        as it is the same for all parents of the same step
 class StepParent:
     """
         A parent of a solver step
@@ -23,17 +25,18 @@ class StepParent:
     def __str__(self):
         return f"StepParents({self.parents})"
 
+    def __repr__(self):
+        return self.__str__()
+
 class SolverStep:
     """
         A step in the solver stack
     """
-    def __init__(self, lit: ClauseLiteral, parents: list[StepParent]):
+    def __init__(self, lit: ClauseLiteral, parents: list[StepParent], decision_level: int = 0):
         self.parents = parents
         self.parents_map = { parent.literal.variable: parent for parent in parents }
         self.literal = lit
-
-    def get_parents(self):
-        return self.parents
+        self.decision_level = decision_level
 
     def is_decision(self):
         raise NotImplementedError
@@ -41,15 +44,27 @@ class SolverStep:
     def is_unit(self):
         raise NotImplementedError
 
+    def get_parents(self):
+        return self.parents
+
+    def get_decision_level(self):
+        return self.decision_level
+
+    def get_literal(self):
+        return self.literal
+
     def __str__(self):
-        return f"SolverStep({self.variable}, {self.value})"
+        return f"SolverStep({self.literal}, {self.decision_level})"
+
+    def __repr__(self):
+        return self.__str__()
 
 class UnitPropagationStep(SolverStep):
     """
         A unit propagation step
     """
-    def __init__(self, lit: ClauseLiteral, antecedent_clause: Clause, parents: list[StepParent]):
-        super().__init__(lit, parents)
+    def __init__(self, lit: ClauseLiteral, parents: list[StepParent], antecedent_clause: Clause, decision_level: int = 0):
+        super().__init__(lit, parents, decision_level)
         self.antecedent_clause = antecedent_clause
 
     def is_decision(self):
@@ -62,14 +77,14 @@ class UnitPropagationStep(SolverStep):
         return self.antecedent_clause
 
     def __str__(self):
-        return f"UnitPropagationStep({self.clause}, {self.literal})"
+        return f"UnitPropagationStep({self.literal}, {self.decision_level})"
 
 class DecisionStep(SolverStep):
     """
         A decision step
     """
-    def __init__(self, lit: ClauseLiteral):
-        super().__init__(lit, [])
+    def __init__(self, lit: ClauseLiteral, decision_level: int = 0):
+        super().__init__(lit, [], decision_level)
 
     def is_decision(self):
         return True
@@ -78,7 +93,7 @@ class DecisionStep(SolverStep):
         return False
 
     def __str__(self):
-        return f"DecisionStep({self.variable}, {self.value})"
+        return f"DecisionStep({self.literal}, {self.decision_level})"
 
 class ImplicationGraph:
     """
@@ -87,7 +102,7 @@ class ImplicationGraph:
     def __init__(self):
         # self.nodes: dict[Literal] = dict()
         # self.edges: dict[(Literal, Literal), Clause] = dict()
-        self.level = 0
+        self.decision_level = 0
         # self.stack: list[Literal] = [ ]
         self.stack: list[SolverStep] = [ ]
         self.lits_map: dict[BooleanVariable, SolverStep] = dict()
@@ -95,13 +110,25 @@ class ImplicationGraph:
     def is_consistent(self):
         return not any(self.is_conflict(lit) for lit in self.nodes)
 
+    def is_empty(self):
+        return len(self.stack) == 0
+    
+    def get_decision_level(self):
+        return self.decision_level
+
+    def get_last_decision_level(self):
+        return self.get_last_decision().get_decision_level()
+
+    # TODO: provide a way to add decisions at level 0 (before starting the solver),
+    #       as it will be needed for incremental solving
     def add_decision(self, lit: ClauseLiteral):
         """
             Adds a node to the implication graph
         """
         # if not self.is_conflict(lit):
         if True:
-            node = DecisionStep(lit)
+            self.decision_level += 1
+            node = DecisionStep(lit, self.decision_level)
             self._add_node(node)
         else:
             # TODO: custon exception
@@ -119,7 +146,7 @@ class ImplicationGraph:
             for p_lit in antecedent_clause.get_literals():
                 # NOTE: can the same objects as in the clause be used here?
                 parents.append(StepParent(p_lit, antecedent_clause))
-            node = UnitPropagationStep(lit, antecedent_clause, parents)
+            node = UnitPropagationStep(lit, parents, antecedent_clause, self.decision_level)
             self._add_node(node)
         else:
             # TODO: custon exception
@@ -298,6 +325,7 @@ class SolverEnvironment:
         learned_clause = conflict_clause
 
         # Use 'decision' criterion
+        # while not self.implication_graph.get_last_step().is_decision():
         while not self.implication_graph.get_last_step().is_decision():
             # Resolve with antecedent
             # TODO: make method for this
@@ -313,14 +341,41 @@ class SolverEnvironment:
 
         _logger.debug(f"Learned clause: { learned_clause }")
 
-        # Backjump ("original strategy" by J. P. M. Silva and K. A. Sakallah. in 'GRASP - A new Search Algorithm for Satisfiability')
-        # Reach decision
-        while not self.implication_graph.get_last_step().is_decision():
-            self.implication_graph.pop()
-        # Pop decision
-        self.implication_graph.pop()
+        # # Backjump ("original strategy" by J. P. M. Silva and K. A. Sakallah. in 'GRASP - A new Search Algorithm for Satisfiability')
+        # # Reach point just before one of the assignments in the learned clause (should be a decision)
+        # print("AAAAAAAA", self.implication_graph.get_last_step().literal.variable  in learned_clause.get_variables())
+        # while not self.implication_graph.get_last_step().is_decision() or self.implication_graph.get_last_step().literal.variable not in learned_clause.get_variables():
+        #     self.implication_graph.pop()
+        # # Pop last assignment
+        # self.implication_graph.pop()
 
-        _logger.debug(f"Backjumped to partial model { self.implication_graph.get_model() }")
+        # Backjump to the the highest point where the learned clause is unit
+        learned_is_unit = False
+        while True:
+            # If stack is empty, then UNSAT
+            if self.implication_graph.is_empty():
+                raise Exception("UNSAT")
+            # Get the last assignment
+            last = self.implication_graph.get_last_step()
+            _logger.debug(f"  - step: { last }")
+            # If we reach the decision level 0 => UNSAT
+            if self.implication_graph.get_last_decision_level() == 0:
+                # return False    # TODO: how to return unsat?
+                raise Exception("UNSAT")
+            # If the last step is a literal in the learned clause
+            if last.get_literal().variable in learned_clause.get_variables():
+                # If the clause it not unit continue, otherwise stop
+                if not learned_is_unit:
+                    learned_is_unit = True
+                    _logger.debug(f"Learned clause is unit at { last }")
+                else:
+                    _logger.debug(f"Variable { last.get_literal().variable } is in learned clause, which is already unit. Stop here.")
+                    break
+            # Pop the last step
+            self.implication_graph.pop()
+            _logger.debug(f"Backjumped to partial model { self.implication_graph.get_model() } (popped: { last })")
+
+        _logger.debug(f"End of backjumping: partial model { self.implication_graph.get_model() }")
         
         # NOTE: let unit propagation be done by the caller
         # # Unit propagate learned clause
