@@ -166,6 +166,7 @@ class ClauseLiteral(Literal):
     def __repr__(self):
         return self.__str__()
 
+# TODO: make FormulaClause class?
 class Clause(NAryNode):
     """
         A clause (disjunction of literals)
@@ -176,9 +177,12 @@ class Clause(NAryNode):
         self.lits_map = { lit.variable: lit for lit in children }
         self.name = name
 
-    def __contains__(self, variable: BooleanVariable):
-        # return variable in self.children or NotLiteral(variable) in self.children
-        return variable in self.get_lits_polarity()
+    def is_learned(self) -> bool:
+        return False
+
+    # def __contains__(self, variable: BooleanVariable):
+    #     # return variable in self.children or NotLiteral(variable) in self.children
+    #     return variable in self.get_lits_polarity()
 
     # def __setitem__(self, lit: Literal, value: bool):
     #     try:
@@ -256,6 +260,8 @@ class Clause(NAryNode):
     def get_unassigned_lits_map(self, model: dict[BooleanVariable, bool]) -> dict[BooleanVariable, bool]:
         return { var: polarity for var, polarity in self.get_literals_polarity_map().items() if var not in model }
 
+    # TODO: make method return the status of the clause w.r.t. the partial model (arg):
+    #       true, consistent, unit (subcase of consistent), inconsistent (or falsified)
     # def is_consistent(self, model: Iterable[ClauseLiteral]) -> bool:
     def is_consistent(self, model: dict[BooleanVariable, bool]) -> bool:
         for var, polarity in self.get_literals_polarity_map().items():
@@ -299,8 +305,42 @@ class Clause(NAryNode):
                 # NOTE: return ClauseLiteral or tuple[BooleanVariable, bool] ?
                 return self.get_literal(var)
 
+    def get_resolution_formula_clauses(self) -> Iterable['Clause']:
+        """
+            Get the clauses that were used in the resolution steps to derive this clause.
+        """
+        # NOTE: for a formula clause, the list is just itself (no recursive substitution needed)
+        return [ self ]
+
+    # NOTE: put this in superclass?
+    def __len__(self):
+        return len(self.children)
+
+    # NOTE: put this in superclass?
+    def __eq__(self, other):
+        return isinstance(other, Clause) and self.children == other.children
+
     def __str__(self):
         return f"{ self.name or '' }{ ': ' if self.name else '' }( { ' OR '.join(str(child) for child in self.children) } )"
 
     def __repr__(self):
         return self.__str__()
+
+class LearnedClause(Clause):
+    """
+        A learned clause. Keeps track of resolution steps that led to its creation.
+    """
+    def __init__(self, children: Iterable['ClauseLiteral'], name: str | None = None, resolution_steps: Iterable['Clause'] | None = None):
+        super().__init__(children, name)
+        self.resolution_steps = resolution_steps    # NOTE: keep it Null? or empty list? ('resolution_steps or []')
+    
+    def is_learned(self) -> bool:
+        return True
+
+    # NOTE//XXX: this is done iteratively here! Might not be the bes approach.
+    # TODO: consider doing this recursively. 
+    def get_resolution_formula_clauses(self) -> Iterable[Clause]:
+        """
+            Get the clauses that were used in the resolution steps to derive this clause.
+        """
+        return [ step if not step.is_learned() else step.get_resolution_formula_clauses() for step in self.resolution_steps ]
