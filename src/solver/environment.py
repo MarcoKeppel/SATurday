@@ -3,6 +3,7 @@ from collections import defaultdict
 from itertools import chain
 
 from src.datastructs.formula import *
+from src.solver.exceptions import *
 
 """
     This module contains the SolverEnvironment class, which is responsible for
@@ -293,10 +294,10 @@ class SolverEnvironment:
             assert unit_clause and unit_lit
 
             # Perform unit propagation
-            print(self.implication_graph.get_model())
+            # print(self.implication_graph.get_model())
             self.implication_graph.add_unit(unit_lit, unit_clause)
-            print(f"added {unit_lit}")
-            print(self.implication_graph.get_model())
+            # print(f"added {unit_lit}")
+            # print(self.implication_graph.get_model())
             model_map = self.implication_graph.get_model_map()
 
             # Check for conflicts
@@ -327,20 +328,38 @@ class SolverEnvironment:
         learned_clause = conflict_clause
 
         # HACK: if the solver is still at decision level 0, then UNSAT
-        if self.implication_graph.get_last_decision_level() == 0:
-            raise Exception("UNSAT")
+        # if self.implication_graph.get_last_decision_level() == 0:
+        #     raise UnsatException(conflict_clause)
+
+        # Keep track of the clauses used to generate the learned clause
+        # NOTE//FIXME?: should only keep clauses in the original formula. Learned clauses should be
+        #               recursively removed by substituting them with the resolution proof generating
+        #               them (at the end, all leaves will be original clauses)
+        proof_clauses = [ conflict_clause ]
 
         # Use 'decision' criterion
         # while not self.implication_graph.get_last_step().is_decision():
-        while not self.implication_graph.get_last_step().is_decision():
+        while not self.implication_graph.get_last_step().is_decision() and not self.implication_graph.is_empty():
             # Resolve with antecedent
             # TODO: make method for this
             prev_step = self.implication_graph.pop()
             antecedent_clause = prev_step.get_antecedent_clause()
             _logger.debug(f"Resolving with antecedent clause { antecedent_clause }")
             lits = set(chain(learned_clause.get_literals(), antecedent_clause.get_literals()))
-            learned_clause = Clause([ lit for lit in lits if ClauseLiteral(lit.variable, not lit.polarity) not in lits ], f"l{ len(self.learned_clauses) }")
+            learned_clause = LearnedClause([ lit for lit in lits if ClauseLiteral(lit.variable, not lit.polarity) not in lits ], f"l{ len(self.learned_clauses) }")
             _logger.debug(f"Resolved: { learned_clause }")
+            proof_clauses.append(antecedent_clause)
+
+            # If clause is empty, then UNSAT (we deduces false!)
+            # Intuition: if we deduce false before reaching a decision, that means the cause of the conflict
+            #            is *not* the decision, but is the result of unit propagation!
+            # TODO: check this statement   ^  ^  ^  ^  ^
+            if len(learned_clause) == 0:
+                # raise UnsatException(conflict_clause)
+                learned_clause.resolution_steps = proof_clauses
+                raise UnsatException(learned_clause.get_resolution_formula_clauses())
+
+        learned_clause.resolution_steps = proof_clauses
 
         self.clauses.append(learned_clause)
         self.learned_clauses.append(learned_clause)
@@ -356,13 +375,14 @@ class SolverEnvironment:
         # self.implication_graph.pop()
 
         # Backjump to the the highest point where the learned clause is unit
+        _logger.debug(f"Start backjumping:")
         learned_is_unit = False
         while True:
             # If stack is empty
             if self.implication_graph.is_empty():
                 # If the clause is not unit yet, then UNSAT
                 if not learned_is_unit:
-                    raise Exception("UNSAT")
+                    raise UnsatException(conflict_clause)
                 # Otherwise, just stop backjumping
                 _logger.debug("Clause is unit and stack is empty, stop backjumping")
                 break
@@ -372,7 +392,7 @@ class SolverEnvironment:
             # If we reach the decision level 0 => UNSAT
             if self.implication_graph.get_last_decision_level() == 0:
                 # return False    # TODO: how to return unsat?
-                raise Exception("UNSAT")
+                raise UnsatException(conflict_clause)
             # If the last step is a literal in the learned clause
             if last.get_literal().variable in learned_clause.get_variables():
                 # If the clause it not unit continue, otherwise stop
@@ -393,6 +413,8 @@ class SolverEnvironment:
         # unit_lit = learned_clause.get_unit(self.implication_graph.get_model_map())
         # self.implication_graph.add_unit(unit_lit, unit_clause)
 
+    # TODO: return SAT as soon as the partial model is satisfiable, without
+    #       deciding and/or propagating the remaining variables
     def cdcl(self):
         """
             Performs the Conflict-Driven Clause Learning algorithm
@@ -422,15 +444,20 @@ class SolverEnvironment:
                 # HACK: get first var not yet assigned, set if to false, add it to the implication graph
                 # var = next(var for var in self.variables if var not in self.implication_graph)
                 var = next(var for var in self.variables if var not in self.implication_graph.lits_map)
-                _logger.debug(f"Next decision: { var } = False")
                 # self.implication_graph.add_node(NotLiteral(var))
+                _logger.debug("= "*32)
                 self.implication_graph.add_decision(ClauseLiteral(var, False))
+                _logger.debug(f"Decision level: { self.implication_graph.get_decision_level() }")
+                _logger.debug(f"Next decision: { var } = False")
+                _logger.debug(". "*32)
         except StopIteration:
-            pass
-        
-        _logger.debug("= "*32)
-        _logger.debug("CDCL algorithm finished")
-        _logger.debug(f"Model: { self.implication_graph.get_model() }")
+            _logger.debug("= "*32)
+            _logger.debug("CDCL algorithm finished")
+            _logger.debug(f"Model: { self.implication_graph.get_model() }")
+        except UnsatException as e:
+            _logger.debug("= "*32)
+            _logger.debug("CDCL algorithm finished")
+            _logger.debug(f"UNSAT: { e.reason }")
 
     def __str__(self):
         return f"SolverEnvironment(\n  variables: {self.variables},\n  clauses: {self.clauses}\n)"
