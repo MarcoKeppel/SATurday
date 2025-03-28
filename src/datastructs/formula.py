@@ -166,6 +166,37 @@ class ClauseLiteral(Literal):
     def __repr__(self):
         return self.__str__()
 
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# TODO: move to another module?
+import enum
+class ClauseStatusEnum(enum.Enum):
+    """
+        The possible status of a clause w.r.t. a (possibly partial) model.
+    """
+    TRUE = 1
+    CONSISTENT = 2
+    UNIT = 3
+    INCONSISTENT = 4
+
+class ClauseStatus:
+    """
+        The status of a clause w.r.t. a (possibly partial) model.
+    """
+    def __init__(self, status: ClauseStatusEnum, unit: ClauseLiteral | None = None):
+        self.status = status
+        self.unit = unit
+
+    def __str__(self):
+        return f"ClauseStatus({ self.status }, { 'unit='+str(self.unit) if self.unit else '' })"
+
+    def __repr__(self):
+        return self.__str__()
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+
 # TODO: make FormulaClause class?
 class Clause(NAryNode):
     """
@@ -262,6 +293,32 @@ class Clause(NAryNode):
 
     # TODO: make method return the status of the clause w.r.t. the partial model (arg):
     #       true, consistent, unit (subcase of consistent), inconsistent (or falsified)
+
+    def get_status(self, model: dict[BooleanVariable, bool]) -> ClauseStatus:
+        n_unassigned = 0
+        potential_unit = None
+        for lit in self.get_literals():
+            # Unassigned lit, ok:
+            if lit.variable not in model:
+                n_unassigned += 1
+                if n_unassigned > 1:
+                    return ClauseStatus(ClauseStatusEnum.CONSISTENT)
+                else:
+                    potential_unit = lit
+            # True lit, ok:
+            elif model[lit.variable] == lit.polarity:
+                return ClauseStatus(ClauseStatusEnum.TRUE)
+        if n_unassigned == 1:
+            return ClauseStatus(ClauseStatusEnum.UNIT, unit=potential_unit)
+        elif n_unassigned > 1:
+            # NOTE: should never get here
+            assert False
+            # return ClauseStatus(ClauseStatusEnum.CONSISTENT)
+        elif n_unassigned == 0:
+            return ClauseStatus(ClauseStatusEnum.INCONSISTENT)
+        # NOTE: should never get here
+        assert False
+
     # def is_consistent(self, model: Iterable[ClauseLiteral]) -> bool:
     def is_consistent(self, model: dict[BooleanVariable, bool]) -> bool:
         for var, polarity in self.get_literals_polarity_map().items():
@@ -320,6 +377,9 @@ class Clause(NAryNode):
     def __eq__(self, other):
         return isinstance(other, Clause) and self.children == other.children
 
+    def __hash__(self):
+        return hash(tuple(self.children))
+
     def __str__(self):
         return f"{ self.name or '' }{ ': ' if self.name else '' }( { ' OR '.join(str(child) for child in self.children) } )"
 
@@ -343,4 +403,12 @@ class LearnedClause(Clause):
         """
             Get the clauses that were used in the resolution steps to derive this clause.
         """
-        return [ step if not step.is_learned() else step.get_resolution_formula_clauses() for step in self.resolution_steps ]
+        # return [ step if not step.is_learned() else step.get_resolution_formula_clauses() for step in self.resolution_steps ]
+        # return { step if not step.is_learned() else step.get_resolution_formula_clauses() for step in self.resolution_steps }
+        clauses = set()
+        for step in self.resolution_steps:
+            if not step.is_learned():
+                clauses.add(step)
+            else:
+                clauses.update(step.get_resolution_formula_clauses())
+        return clauses
