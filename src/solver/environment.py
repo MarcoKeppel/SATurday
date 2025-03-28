@@ -11,7 +11,7 @@ from src.solver.exceptions import *
 """
 
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG) 
+_logger.setLevel(logging.DEBUG)
 
 # FIXME: no need to store the antecedent clause for every parent of a unit propagation step,
 #        as it is the same for all parents of the same step
@@ -41,7 +41,7 @@ class SolverStep:
 
     def is_decision(self):
         raise NotImplementedError
-    
+
     def is_unit(self):
         raise NotImplementedError
 
@@ -113,7 +113,7 @@ class ImplicationGraph:
 
     def is_empty(self):
         return len(self.stack) == 0
-    
+
     def get_decision_level(self):
         return self.decision_level
 
@@ -222,7 +222,7 @@ class ImplicationGraph:
 
     def __str__(self):
         return f"ImplicationGraph({self.nodes})"
-    
+
     def __repr__(self):
         return self.__str__()
 
@@ -250,7 +250,7 @@ class SolverEnvironment:
         self.variables.update({var for var in clause.variables() if var not in self.variables})
         for var in clause.variables():
             self.variables_occurrences[var] += 1
-    
+
     def unit_propagate_literal(self, clause: Clause, lit: Literal):
         """
             Performs unit propagation for a literal
@@ -271,7 +271,7 @@ class SolverEnvironment:
             Performs unit propagation
         """
 
-        propagation = True  
+        propagation = True
         while propagation:
             propagation = False
 
@@ -280,11 +280,12 @@ class SolverEnvironment:
             unit_lit: ClauseLiteral = None
             model_map = self.implication_graph.get_model_map()
             for c in self.clauses:
-                if c.is_unit(model_map):
+                status = c.get_status(model_map)
+                if status.status == ClauseStatusEnum.UNIT:
                     propagation = True
                     unit_clause = c
-                    unit_lit = c.get_unit(model_map)
-                    _logger.debug(f"Clause { c } is unit: deduced { unit_lit }")
+                    unit_lit = status.unit
+                    _logger.debug(f"Unit clause found")
                     break
             # No unit clauses found
             if unit_clause is None:
@@ -294,11 +295,9 @@ class SolverEnvironment:
             assert unit_clause and unit_lit
 
             # Perform unit propagation
-            # print(self.implication_graph.get_model())
             self.implication_graph.add_unit(unit_lit, unit_clause)
-            # print(f"added {unit_lit}")
-            # print(self.implication_graph.get_model())
             model_map = self.implication_graph.get_model_map()
+            _logger.debug(f"Clause { c } is unit: deduced { unit_lit }")
 
             # Check for conflicts
             conflict_clause: Clause = None
@@ -310,7 +309,7 @@ class SolverEnvironment:
                 else:
                     pass
                     # _logger.debug(f"Clause { c } is consistent")
-            
+
             # If no conflict, continue
             if conflict_clause is None:
                 _logger.debug(f"Partial model { self.implication_graph.get_model() } {self.implication_graph.get_model_map() } is consistent")
@@ -337,14 +336,22 @@ class SolverEnvironment:
         #               them (at the end, all leaves will be original clauses)
         proof_clauses = [ conflict_clause ]
 
-        # Use 'decision' criterion
-        # while not self.implication_graph.get_last_step().is_decision():
+        # Use 'last UIP' criterion
         while not self.implication_graph.get_last_step().is_decision() and not self.implication_graph.is_empty():
             # Resolve with antecedent
             # TODO: make method for this
             prev_step = self.implication_graph.pop()
+
+
+            # If the current unit propagated literal is not in the learned clause,
+            # then don't resolve learned_clause with it
+            if prev_step.get_literal().variable not in learned_clause.get_variables():
+                _logger.debug(f"Variable { prev_step.get_literal().variable } is not in learned clause, skip")
+                continue
+
+
             antecedent_clause = prev_step.get_antecedent_clause()
-            _logger.debug(f"Resolving with antecedent clause { antecedent_clause }")
+            _logger.debug(f"Resolving with antecedent clause { antecedent_clause }, from which { prev_step.get_literal() } was deduced")
             lits = set(chain(learned_clause.get_literals(), antecedent_clause.get_literals()))
             learned_clause = LearnedClause([ lit for lit in lits if ClauseLiteral(lit.variable, not lit.polarity) not in lits ], f"l{ len(self.learned_clauses) }")
             _logger.debug(f"Resolved: { learned_clause }")
@@ -365,6 +372,7 @@ class SolverEnvironment:
         self.learned_clauses.append(learned_clause)
 
         _logger.debug(f"Learned clause: { learned_clause }")
+        _logger.debug(f"    total learned clauses: { len(self.learned_clauses) }")
 
         # # Backjump ("original strategy" by J. P. M. Silva and K. A. Sakallah. in 'GRASP - A new Search Algorithm for Satisfiability')
         # # Reach point just before one of the assignments in the learned clause (should be a decision)
@@ -382,7 +390,8 @@ class SolverEnvironment:
             if self.implication_graph.is_empty():
                 # If the clause is not unit yet, then UNSAT
                 if not learned_is_unit:
-                    raise UnsatException(conflict_clause)
+                    # raise UnsatException(conflict_clause)
+                    raise UnsatException(conflict_clause.get_resolution_formula_clauses())
                 # Otherwise, just stop backjumping
                 _logger.debug("Clause is unit and stack is empty, stop backjumping")
                 break
@@ -392,7 +401,8 @@ class SolverEnvironment:
             # If we reach the decision level 0 => UNSAT
             if self.implication_graph.get_last_decision_level() == 0:
                 # return False    # TODO: how to return unsat?
-                raise UnsatException(conflict_clause)
+                # raise UnsatException(conflict_clause)
+                raise UnsatException(conflict_clause.get_resolution_formula_clauses())
             # If the last step is a literal in the learned clause
             if last.get_literal().variable in learned_clause.get_variables():
                 # If the clause it not unit continue, otherwise stop
@@ -407,7 +417,7 @@ class SolverEnvironment:
             _logger.debug(f"Backjumped to partial model { self.implication_graph.get_model() } (popped: { last })")
 
         _logger.debug(f"End of backjumping: partial model { self.implication_graph.get_model() }")
-        
+
         # NOTE: let unit propagation be done by the caller
         # # Unit propagate learned clause
         # unit_lit = learned_clause.get_unit(self.implication_graph.get_model_map())
@@ -438,7 +448,7 @@ class SolverEnvironment:
 
                 if conflict is not None:
                     _logger.debug(f"Conflict detected with clause { conflict }")
-                
+
                 # Non-deterministic choices
 
                 # HACK: get first var not yet assigned, set if to false, add it to the implication graph

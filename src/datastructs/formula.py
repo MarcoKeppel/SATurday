@@ -8,7 +8,7 @@ class FormulaNode:
     """
         A generic node in the formula tree/DAG
     """
-    
+
     def __eq__(self, other):
         # NOTE: purely syntactic equality, not semantic:
         #   - does not consider commutative properties (operators can override it to do so)
@@ -17,7 +17,7 @@ class FormulaNode:
 
     def __str__(self):
         raise NotImplementedError()
-    
+
     def __repr__(self):
         return str(self)
 
@@ -27,7 +27,7 @@ class NAryNode(FormulaNode):
     """
     def __init__(self, children: Iterable['FormulaNode']):
         self.children = children
-    
+
     def __eq__(self, other):
         # NOTE: purely syntactic equality, not semantic:
         #   - does not consider commutative properties (operators can override it to do so)
@@ -36,7 +36,7 @@ class NAryNode(FormulaNode):
 
     def __str__(self):
         raise NotImplementedError()
-    
+
     def __repr__(self):
         return str(self)
 
@@ -56,14 +56,14 @@ class And(BooleanOperator):
 
     def __repr__(self):
         return self.__str__()
-    
+
 class Or(BooleanOperator):
     """
         Logical OR operator
     """
     def __str__(self):
         return f"( { ' OR '.join(str(child) for child in self.children) } )"
-    
+
     def __repr__(self):
         return self.__str__()
 
@@ -73,7 +73,7 @@ class Not(BooleanOperator):
     """
     def __str__(self):
         return "! " + str(self.children[0])
-    
+
     def __repr__(self):
         return self.__str__()
 
@@ -94,10 +94,10 @@ class BooleanConstant(Atom):
     def __init__(self, value: bool):
         super().__init__([])
         self.value = value
-    
+
     def __str__(self):
         return str(self.value)
-    
+
     def __repr__(self):
         return self.__str__()
 
@@ -108,7 +108,7 @@ class BooleanVariable(Atom):
     def __init__(self, name: str):
         super().__init__()
         self.name = name
-    
+
     def invert(self) -> Literal:
         return NotLiteral(self)
 
@@ -120,7 +120,7 @@ class BooleanVariable(Atom):
 
     def __str__(self):
         return self.name
-    
+
     def __repr__(self):
         return self.__str__()
 
@@ -137,7 +137,7 @@ class NotLiteral(Literal):
 
     def invert(self) -> Literal:
         return self.get_variable()
-    
+
     def __hash__(self):
         return self.get_variable().name.__hash__() + 1 # XXX: ???
 
@@ -247,7 +247,7 @@ class Clause(NAryNode):
     # def uninterpreted_vars_count(self) -> int:
     #     # NOTE: this or len(list(self.uninterpreted_vars()))?
     #     return sum(1 for var in self.uninterpreted_vars())
-    
+
     # def is_unit(self) -> bool:
     #     if self.uninterpreted_vars_count() != 1: return False
     #     return all(interpretation == isinstance(variable, NotLiteral) for variable, interpretation in self.variables_interpretation.items() if interpretation is not None)
@@ -393,12 +393,12 @@ class LearnedClause(Clause):
     def __init__(self, children: Iterable['ClauseLiteral'], name: str | None = None, resolution_steps: Iterable['Clause'] | None = None):
         super().__init__(children, name)
         self.resolution_steps = resolution_steps    # NOTE: keep it Null? or empty list? ('resolution_steps or []')
-    
+
     def is_learned(self) -> bool:
         return True
 
     # NOTE//XXX: this is done iteratively here! Might not be the bes approach.
-    # TODO: consider doing this recursively. 
+    # TODO: consider doing this iteratively.
     def get_resolution_formula_clauses(self) -> Iterable[Clause]:
         """
             Get the clauses that were used in the resolution steps to derive this clause.
