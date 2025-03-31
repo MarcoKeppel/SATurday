@@ -412,6 +412,14 @@ class LearnedClause(Clause):
     def is_learned(self) -> bool:
         return True
 
+    # NOTE: O(n), as it needs to build 'lits_map' and 'lits_polarity_map'. Could be improved.
+    @staticmethod
+    def from_clause(clause: 'Clause') -> None:
+        """
+            Build a LearnedClause from a Clause object (shallow copy). Note that the resolution steps are not copied.
+        """
+        return LearnedClause(clause.get_literals(), name=clause.name)
+
     # NOTE//XXX: this is done iteratively here! Might not be the bes approach.
     # TODO: consider doing this iteratively.
     def get_resolution_formula_clauses(self) -> Iterable[Clause]:

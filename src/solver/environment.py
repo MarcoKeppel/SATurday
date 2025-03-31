@@ -324,7 +324,7 @@ class SolverEnvironment:
         """
         _logger.debug(f"Performing conflict analysis with conflict clause { conflict_clause }")
 
-        learned_clause = conflict_clause
+        learned_clause = LearnedClause.from_clause(conflict_clause)
 
         # HACK: if the solver is still at decision level 0, then UNSAT
         # if self.implication_graph.get_last_decision_level() == 0:
