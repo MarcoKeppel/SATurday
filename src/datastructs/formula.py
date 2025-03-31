@@ -1,4 +1,5 @@
 from typing import Iterable
+from itertools import chain
 
 """
     This module contains classes to represent formulas (input formulas, solver clauses, ...)
@@ -16,7 +17,7 @@ class FormulaNode:
         return type(self) == type(other) and self.children == other.children
 
     def __str__(self):
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def __repr__(self):
         return str(self)
@@ -35,7 +36,7 @@ class NAryNode(FormulaNode):
         return type(self) == type(other) and self.children == other.children
 
     def __str__(self):
-        raise NotImplementedError()
+        raise NotImplementedError
 
     def __repr__(self):
         return str(self)
@@ -362,6 +363,20 @@ class Clause(NAryNode):
                 # NOTE: return ClauseLiteral or tuple[BooleanVariable, bool] ?
                 return self.get_literal(var)
 
+    def resolve_with(self, premise: 'Clause', name: str | None = None) -> 'Clause':
+        """
+            Resolve this clause with another clause (premise). The conclusion is returned.
+        """
+        lits = set(chain(self.get_literals(), premise.get_literals()))
+        # Use the subclass of self to create the new clause:
+        return type(self)([ lit for lit in lits if ClauseLiteral(lit.variable, not lit.polarity) not in lits ], name=name)
+
+    def resolve(self, premise: 'Clause') -> None:
+        """
+            Resolve this clause with another clause (premise). The conclusion is stored in self.
+        """
+        raise NotImplementedError
+
     def get_resolution_formula_clauses(self) -> Iterable['Clause']:
         """
             Get the clauses that were used in the resolution steps to derive this clause.
@@ -392,7 +407,7 @@ class LearnedClause(Clause):
     """
     def __init__(self, children: Iterable['ClauseLiteral'], name: str | None = None, resolution_steps: Iterable['Clause'] | None = None):
         super().__init__(children, name)
-        self.resolution_steps = resolution_steps    # NOTE: keep it Null? or empty list? ('resolution_steps or []')
+        self.resolution_steps = resolution_steps    # NOTE: keep it Null? or empty list? ('... = resolution_steps or []')
 
     def is_learned(self) -> bool:
         return True

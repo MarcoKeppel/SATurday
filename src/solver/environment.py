@@ -352,8 +352,7 @@ class SolverEnvironment:
 
             antecedent_clause = prev_step.get_antecedent_clause()
             _logger.debug(f"Resolving with antecedent clause { antecedent_clause }, from which { prev_step.get_literal() } was deduced")
-            lits = set(chain(learned_clause.get_literals(), antecedent_clause.get_literals()))
-            learned_clause = LearnedClause([ lit for lit in lits if ClauseLiteral(lit.variable, not lit.polarity) not in lits ], f"l{ len(self.learned_clauses) }")
+            learned_clause = learned_clause.resolve_with(antecedent_clause, name=f"l{ len(self.learned_clauses) }")
             _logger.debug(f"Resolved: { learned_clause }")
             proof_clauses.append(antecedent_clause)
 
